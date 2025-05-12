@@ -1,0 +1,869 @@
+{
+ "cells": [
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "# MLflow 05: Fine-Tuning LLMs with MLflow - Custom Domain Adaptation\n",
+    "\n",
+    "Welcome back to our advanced MLflow series! In [Notebook 4](MLflow_04_Building_RAG_Applications_with_MLflow_LlamaIndex.ipynb), we explored Retrieval-Augmented Generation (RAG) to enhance LLMs with external knowledge. Now, we'll delve into another powerful technique for customizing LLMs: **Fine-Tuning**.\n",
+    "\n",
+    "Fine-tuning adapts a pre-trained LLM to a specific domain, task, or conversational style by further training it on a custom dataset. This can lead to significantly better performance on niche tasks compared to using a generic, off-the-shelf model. However, fine-tuning can be resource-intensive and involves many experimental variables.\n",
+    "\n",
+    "In this notebook, we'll:\n",
+    "- Learn the 'why' and 'how' of fine-tuning LLMs.\n",
+    "- Use **Parameter-Efficient Fine-Tuning (PEFT)**, specifically **Low-Rank Adaptation (LoRA)**, to make the process more manageable.\n",
+    "- Leverage the **Hugging Face `transformers`** and **`trl` (Transformer Reinforcement Learning)** libraries for supervised fine-tuning (`SFTTrainer`).\n",
+    "- And, critically, use **MLflow** to track our fine-tuning experiments, log configurations, model adapters, and qualitative results.\n",
+    "\n",
+    "![Fine-tuning Concept](https://huggingface.co/datasets/huggingface-course/static-assets/resolve/main/images/chapter7/fine-tuning.png)\n",
+    "\n",
+    "Let's get started on tailoring an LLM for generating creative recipes!\n",
+    "\n",
+    "---"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## Table of Contents\n",
+    "\n",
+    "1. [Why Fine-Tune LLMs? RAG vs. Fine-Tuning](#why-fine-tune)\n",
+    "2. [Choosing a Base Model and Dataset for Fine-Tuning](#choosing-model-dataset)\n",
+    "3. [Setting Up the Fine-Tuning Environment](#setting-up-environment)\n",
+    "    - [Installing Libraries](#installing-libraries-ft)\n",
+    "    - [GPU Considerations](#gpu-considerations)\n",
+    "    - [Configuring MLflow](#configuring-mlflow-ft)\n",
+    "4. [Data Preparation for Supervised Fine-Tuning (SFT)](#data-preparation-sft)\n",
+    "    - [Loading and Inspecting the Dataset](#loading-inspecting-dataset)\n",
+    "    - [Formatting and Tokenization](#formatting-tokenization)\n",
+    "5. [Fine-Tuning with LoRA, `transformers`, and `trl`](#fine-tuning-lora-trl)\n",
+    "    - [Loading the Base Model (with Quantization)](#loading-base-model-quant)\n",
+    "    - [Configuring LoRA (PEFT)](#configuring-lora)\n",
+    "    - [Setting up Training Arguments](#setting-up-training-args)\n",
+    "    - [Initializing and Running the `SFTTrainer`](#initializing-sfttrainer)\n",
+    "6. [Integrating Fine-Tuning Experiments with MLflow](#integrating-ft-mlflow)\n",
+    "    - [Logging Parameters, Metrics, and Artifacts](#logging-ft-params-metrics-artifacts)\n",
+    "7. [Qualitative Evaluation of the Fine-Tuned Model](#qualitative-evaluation-ft)\n",
+    "    - [Loading the Fine-Tuned Adapter](#loading-ft-adapter)\n",
+    "    - [Generating Sample Responses](#generating-sample-responses-ft)\n",
+    "8. [Exploring Fine-Tuning Runs in the MLflow UI](#exploring-ft-mlflow-ui)\n",
+    "9. [Saving and (Optionally) Pushing Adapters to Hugging Face Hub](#saving-pushing-adapters)\n",
+    "10. [Key Takeaways](#key-takeaways-ft)\n",
+    "11. [Engaging Resources and Further Reading](#resources-and-further-reading-ft)\n",
+    "\n",
+    "---"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 1. Why Fine-Tune LLMs? RAG vs. Fine-Tuning\n",
+    "\n",
+    "While RAG (Notebook 4) is excellent for providing LLMs with up-to-date or external factual knowledge, **fine-tuning** is more about teaching the model *how* to behave, reason, or generate text in a specific style or domain.\n",
+    "\n",
+    "**Reasons to Fine-Tune:**\n",
+    "- **Domain Adaptation:** Imbue the model with specialized vocabulary, jargon, and nuances of a specific field (e.g., legal, medical, code generation in a particular language style).\n",
+    "- **Style and Tone Adaptation:** Train the model to generate text in a specific voice, tone (e.g., formal, humorous), or format (e.g., Socratic dialogue, specific JSON structure).\n",
+    "- **Improved Performance on Niche Tasks:** Enhance capabilities for tasks where the base model might be weak, like generating highly specific types of summaries or creative text.\n",
+    "- **Learning New Behaviors:** Teach the model to follow complex instructions or perform reasoning patterns not well-represented in its original training.\n",
+    "\n",
+    "**RAG vs. Fine-Tuning:**\n",
+    "- **RAG:** Best for incorporating factual knowledge, reducing hallucinations with verifiable sources, and handling rapidly changing information. The LLM's core abilities don't change.\n",
+    "- **Fine-Tuning:** Best for adapting model behavior, style, and implicit knowledge of a domain. Changes the model's internal weights.\n",
+    "- **Often Complementary:** You can use both! Fine-tune a model for a specific domain/style and then use RAG to provide it with the latest factual context.\n",
+    "\n",
+    "Fine-tuning, especially full fine-tuning, can be computationally expensive and require large datasets. **Parameter-Efficient Fine-Tuning (PEFT)** methods like LoRA significantly reduce these demands.\n",
+    "\n",
+    "---"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 2. Choosing a Base Model and Dataset for Fine-Tuning\n",
+    "\n",
+    "**Base Model:**\n",
+    "For this notebook, we'll use `microsoft/phi-3-mini-4k-instruct`. It's a recent, powerful, yet relatively small instruction-tuned model, making it suitable for fine-tuning on consumer-grade GPUs (with quantization and LoRA).\n",
+    "\n",
+    "**Dataset for Domain Adaptation (Recipe Generation):**\n",
+    "We'll use the `alignment-handbook/recipe_instructions` dataset (published Nov 2023) from Hugging Face. It contains instructions and responses for generating recipes, which is a clear, creative domain. The format is typically a turn-based conversation like: `<s>Human: [USER_PROMPT]</s><s>Assistant: [MODEL_RESPONSE]</s>`.\n",
+    "\n",
+    "---"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 3. Setting Up the Fine-Tuning Environment"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Installing Libraries\n",
+    "We need `mlflow`, `transformers`, `datasets`, `peft` (for LoRA), `trl` (for `SFTTrainer`), `bitsandbytes` (for quantization), and `accelerate`."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "!pip install --quiet mlflow transformers datasets peft trl bitsandbytes sentencepiece accelerate\n",
+    "\n",
+    "import mlflow\n",
+    "import torch\n",
+    "from datasets import load_dataset\n",
+    "from transformers import (\n",
+    "    AutoModelForCausalLM,\n",
+    "    AutoTokenizer,\n",
+    "    BitsAndBytesConfig,\n",
+    "    TrainingArguments,\n",
+    "    pipeline\n",
+    ")\n",
+    "from peft import LoraConfig, PeftModel, get_peft_model, prepare_model_for_kbit_training\n",
+    "from trl import SFTTrainer\n",
+    "import os\n",
+    "import shutil\n",
+    "\n",
+    "print(f\"MLflow Version: {mlflow.__version__}\")\n",
+    "print(f\"PyTorch Version: {torch.__version__}\")\n",
+    "import transformers\n",
+    "print(f\"Transformers Version: {transformers.__version__}\")\n",
+    "import peft\n",
+    "print(f\"PEFT Version: {peft.__version__}\")\n",
+    "import trl\n",
+    "print(f\"TRL Version: {trl.__version__}\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### GPU Considerations\n",
+    "Fine-tuning LLMs, even with LoRA and quantization, is **GPU-intensive**. \n",
+    "- This notebook is designed to be runnable on a platform like Google Colab with a T4 GPU (approx. 16GB VRAM) or similar.\n",
+    "- If you have less VRAM, you might need to reduce batch size, LoRA rank, or choose an even smaller model.\n",
+    "- Ensure your CUDA drivers and PyTorch CUDA version are compatible.\n",
+    "\n",
+    "The following code checks for GPU availability:"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "if torch.cuda.is_available():\n",
+    "    print(f\"CUDA is available. Using GPU: {torch.cuda.get_device_name(0)}\")\n",
+    "    # Set the current device to GPU to ensure operations are performed on it\n",
+    "    torch.cuda.set_device(0)\n",
+    "    # Get the current device\n",
+    "    device = torch.cuda.current_device()\n",
+    "else:\n",
+    "    print(\"CUDA not available. Fine-tuning will be very slow or impossible on CPU.\")\n",
+    "    print(\"Please ensure you have a GPU environment for this notebook.\")\n",
+    "    device = 'cpu' # Fallback, but not recommended for actual training\n",
+    "\n",
+    "# Clear GPU memory if needed (useful when re-running cells)\n",
+    "if torch.cuda.is_available():\n",
+    "    torch.cuda.empty_cache()"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Configuring MLflow"
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "mlflow.set_tracking_uri('mlruns') # Use local 'mlruns' directory\n",
+    "experiment_name = \"LLM_FineTuning_RecipeBot_Phi3Mini\"\n",
+    "mlflow.set_experiment(experiment_name)\n",
+    "\n",
+    "print(f\"MLflow Experiment set to: {experiment_name}\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "---"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 4. Data Preparation for Supervised Fine-Tuning (SFT)\n",
+    "\n",
+    "Supervised Fine-Tuning (SFT) involves training the LLM on examples of desired input-output behavior, typically formatted as prompts and their corresponding ideal responses."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Loading and Inspecting the Dataset\n",
+    "We'll load the `alignment-handbook/recipe_instructions` dataset and take a small subset for demonstration purposes."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "dataset_name = \"alignment-handbook/recipe_instructions\"\n",
+    "try:\n",
+    "    # Load a small subset for faster processing in this demo\n",
+    "    # The dataset has a 'text' field containing \"<s>Human: ...</s><s>Assistant: ...</s>\"\n",
+    "    raw_dataset = load_dataset(dataset_name, split=\"train[:2%]\", trust_remote_code=True) # Using 2% for demo, approx 100-200 samples\n",
+    "    # For a real fine-tuning, you'd use much more data, e.g., split=\"train\"\n",
+    "    print(f\"Loaded {len(raw_dataset)} samples from {dataset_name}.\")\n",
+    "    print(\"\\nSample entry:\")\n",
+    "    print(raw_dataset[0]['text'])\n",
+    "except Exception as e:\n",
+    "    print(f\"Error loading dataset: {e}\")\n",
+    "    print(\"Creating a dummy dataset for fallback to allow notebook to proceed.\")\n",
+    "    # Fallback dummy data if dataset loading fails\n",
+    "    dummy_texts = [\n",
+    "        \"<s>Human: Can you give me a simple recipe for pancakes?</s><s>Assistant: Sure! For simple pancakes, you'll need 1 cup of flour, 1 tbsp sugar, 2 tsp baking powder, 1/2 tsp salt, 1 egg, 1 cup milk, and 2 tbsp melted butter. Mix dry ingredients, then wet. Cook on a griddle!</s>\",\n",
+    "        \"<s>Human: What's a good vegan chocolate cake recipe?</s><s>Assistant: For a vegan chocolate cake, combine 1.5 cups flour, 1 cup sugar, 1/4 cup cocoa powder, 1 tsp baking soda, and 1/2 tsp salt. In another bowl, mix 1 cup plant milk, 1 tsp apple cider vinegar, 1/3 cup vegetable oil, and 1 tsp vanilla extract. Combine wet and dry, bake at 350°F (175°C) for 30-35 minutes.</s>\"\n",
+    "    ]\n",
+    "    raw_dataset = datasets.Dataset.from_dict({\"text\": dummy_texts})\n",
+    "    print(f\"Using dummy dataset with {len(raw_dataset)} samples.\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Formatting and Tokenization\n",
+    "The `SFTTrainer` from `trl` can directly handle datasets where each entry is a string containing the full conversation turn (prompt + response). It will take care of formatting and masking labels for the prompt part during training.\n",
+    "\n",
+    "We need to load the tokenizer for our chosen base model."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "base_model_name = \"microsoft/phi-3-mini-4k-instruct\"\n",
+    "\n",
+    "# Load tokenizer\n",
+    "tokenizer = AutoTokenizer.from_pretrained(base_model_name, trust_remote_code=True)\n",
+    "# Set padding token if not already set (Phi-3 tokenizer might have it, but good practice)\n",
+    "if tokenizer.pad_token is None:\n",
+    "    tokenizer.pad_token = tokenizer.eos_token # Common practice\n",
+    "    # tokenizer.add_special_tokens({'pad_token': '[PAD]'}) # Alternative if eos_token is not suitable\n",
+    "tokenizer.padding_side = \"right\" # Important for Causal LMs\n",
+    "\n",
+    "print(f\"Tokenizer for {base_model_name} loaded. Pad token: {tokenizer.pad_token}\")\n",
+    "\n",
+    "# The dataset is already in a good format for SFTTrainer if the 'text' field contains the full prompt+response.\n",
+    "# SFTTrainer will handle the tokenization and masking internally.\n",
+    "# We just need to specify the column containing the text. In our case, it's 'text'.\n",
+    "dataset_text_field = \"text\" # This is the column SFTTrainer will look for\n",
+    "\n",
+    "# Optional: We can split into train/validation if desired, but for a quick demo, SFTTrainer can use the whole set.\n",
+    "# For robust training, a validation set is crucial.\n",
+    "# For this demo, we'll use the whole small dataset for training to keep it simple.\n",
+    "train_dataset = raw_dataset\n",
+    "print(f\"Using {len(train_dataset)} samples for fine-tuning.\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "![Data Preprocessing](https://thumbs.dreamstime.com/b/four-components-data-preprocessing-components-data-preprocessing-117562111.jpg)\n",
+    "\n",
+    "---"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 5. Fine-Tuning with LoRA, `transformers`, and `trl`"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Loading the Base Model (with Quantization)\n",
+    "To fit larger models into limited VRAM, we'll use 4-bit quantization with `bitsandbytes`."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Quantization configuration\n",
+    "quantization_config = BitsAndBytesConfig(\n",
+    "    load_in_4bit=True,\n",
+    "    bnb_4bit_quant_type=\"nf4\",      # Use NF4 for better precision\n",
+    "    bnb_4bit_compute_dtype=torch.bfloat16, # Or torch.float16 if bfloat16 not supported\n",
+    "    bnb_4bit_use_double_quant=True, # Optional, can save a bit more memory\n",
+    ")\n",
+    "\n",
+    "print(\"Loading base model with 4-bit quantization...\")\n",
+    "try:\n",
+    "    base_model = AutoModelForCausalLM.from_pretrained(\n",
+    "        base_model_name,\n",
+    "        quantization_config=quantization_config,\n",
+    "        device_map=\"auto\", # Automatically distribute model layers across GPUs if available, or load on current device\n",
+    "        trust_remote_code=True,\n",
+    "        # torch_dtype=torch.bfloat16, # Redundant if bnb_4bit_compute_dtype is set, but can be specified\n",
+    "    )\n",
+    "    print(f\"Base model {base_model_name} loaded successfully.\")\n",
+    "except Exception as e:\n",
+    "    print(f\"Error loading base model: {e}\")\n",
+    "    print(\"This might be due to insufficient VRAM, HuggingFace Hub connectivity, or model compatibility issues.\")\n",
+    "    # In a real scenario, you'd want to handle this error more gracefully.\n",
+    "    raise e\n",
+    "\n",
+    "# The model's tokenizer should match the one we loaded earlier.\n",
+    "base_model.config.tokenizer_class = tokenizer.__class__.__name__\n",
+    "base_model.config.pad_token_id = tokenizer.pad_token_id # Ensure model config matches tokenizer\n",
+    "base_model.config.use_cache = False # Recommended for fine-tuning to save memory"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Configuring LoRA (PEFT)\n",
+    "LoRA (Low-Rank Adaptation) freezes the pre-trained model weights and injects trainable rank decomposition matrices into specified layers (usually attention layers). This dramatically reduces the number of trainable parameters."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Prepare model for k-bit training if using quantization\n",
+    "base_model = prepare_model_for_kbit_training(base_model)\n",
+    "\n",
+    "lora_config = LoraConfig(\n",
+    "    r=16,  # Rank of the LoRA matrices (higher r = more parameters, potentially better fit but slower)\n",
+    "    lora_alpha=32, # Alpha scaling factor (often 2*r)\n",
+    "    target_modules=[\"q_proj\", \"k_proj\", \"v_proj\", \"o_proj\", \"gate_proj\", \"up_proj\", \"down_proj\"], # Target layers for Phi-3, may vary by model\n",
+    "    lora_dropout=0.05,\n",
+    "    bias=\"none\",\n",
+    "    task_type=\"CAUSAL_LM\",\n",
+    ")\n",
+    "\n",
+    "# Apply LoRA to the base model\n",
+    "peft_model = get_peft_model(base_model, lora_config)\n",
+    "print(\"\\nPEFT model created with LoRA adapters.\")\n",
+    "peft_model.print_trainable_parameters() # Shows how few parameters are actually being trained"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Setting up Training Arguments\n",
+    "These arguments control various aspects of the training loop (batch size, learning rate, epochs, etc.)."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "output_dir = \"./phi3_mini_recipe_finetuned_adapters\"\n",
+    "if os.path.exists(output_dir):\n",
+    "    shutil.rmtree(output_dir) # Clean up from previous runs if needed\n",
+    "\n",
+    "training_args = TrainingArguments(\n",
+    "    output_dir=output_dir,\n",
+    "    per_device_train_batch_size=2,  # Adjust based on your VRAM (1 or 2 is common for 4k seq len on 16GB VRAM)\n",
+    "    gradient_accumulation_steps=4, # Effective batch size = batch_size * grad_accum_steps\n",
+    "    learning_rate=2e-4,\n",
+    "    num_train_epochs=1, # For demo purposes, 1 epoch. Increase for real fine-tuning (e.g., 3-5).\n",
+    "    logging_steps=25, # Log training loss every N steps\n",
+    "    save_strategy=\"epoch\", # Save checkpoints at the end of each epoch\n",
+    "    # optim=\"paged_adamw_8bit\", # Use paged AdamW for memory efficiency with 8-bit optimizers (if bitsandbytes supports it well)\n",
+    "    # optim=\"adamw_torch\", # Standard AdamW\n",
+    "    optim=\"adamw_bnb_8bit\", # 8-bit Adam from bitsandbytes\n",
+    "    warmup_steps=10,\n",
+    "    # max_steps=100, # Optionally set max_steps instead of epochs for very quick demo\n",
+    "    fp16=True if torch.cuda.is_available() and not torch.cuda.is_bf16_supported() else False, # Use fp16 if bfloat16 not available\n",
+    "    bf16=True if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else False, # Use bfloat16 if available (better for LLMs)\n",
+    "    report_to=\"mlflow\", # Integrate with MLflow (SFTTrainer has built-in MLflow callback)\n",
+    "    # load_best_model_at_end=True, # If using evaluation_strategy\n",
+    "    # evaluation_strategy=\"steps\", # If you have an eval dataset\n",
+    "    # eval_steps=50,\n",
+    ")\n",
+    "\n",
+    "print(\"\\nTrainingArguments configured.\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Initializing and Running the `SFTTrainer`\n",
+    "`SFTTrainer` from `trl` simplifies the supervised fine-tuning process."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "trainer = SFTTrainer(\n",
+    "    model=peft_model, # Our PEFT model with LoRA adapters\n",
+    "    args=training_args,\n",
+    "    train_dataset=train_dataset,\n",
+    "    # eval_dataset=eval_dataset, # If you have one\n",
+    "    dataset_text_field=dataset_text_field, # Name of the column with text data (prompt+response)\n",
+    "    tokenizer=tokenizer,\n",
+    "    peft_config=lora_config, # Pass LoRA config again, SFTTrainer can use it\n",
+    "    max_seq_length=1024,    # Max sequence length (Phi-3 mini can go up to 4096, adjust based on VRAM and data)\n",
+    "    # packing=True, # Packs multiple short sequences into one for efficiency (good for datasets with varying lengths)\n",
+    ")\n",
+    "\n",
+    "print(\"\\nSFTTrainer initialized. Starting fine-tuning...\")\n",
+    "try:\n",
+    "    if torch.cuda.is_available(): # Only train if GPU is available\n",
+    "        train_result = trainer.train()\n",
+    "        print(\"Fine-tuning completed.\")\n",
+    "        # Save the final adapter model\n",
+    "        trainer.save_model(os.path.join(output_dir, \"final_adapter\"))\n",
+    "        print(f\"Final adapter model saved to {os.path.join(output_dir, 'final_adapter')}\")\n",
+    "    else:\n",
+    "        print(\"Skipping training as CUDA is not available.\")\n",
+    "        train_result = None # Placeholder if no training occurs\n",
+    "except Exception as e:\n",
+    "    print(f\"An error occurred during training: {e}\")\n",
+    "    # This could be an OOM error, ensure batch_size, seq_length are appropriate for your VRAM\n",
+    "    raise e\n",
+    "\n",
+    "# Clean up model from memory to free VRAM\n",
+    "del base_model\n",
+    "del peft_model\n",
+    "del trainer\n",
+    "if torch.cuda.is_available():\n",
+    "    torch.cuda.empty_cache()\n",
+    "print(\"Cleaned up models from memory.\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "The `SFTTrainer` automatically handles the training loop, loss calculation, and optimization. Because we set `report_to=\"mlflow\"` in `TrainingArguments`, it should automatically log metrics like training loss to MLflow during the training process if an MLflow run is active.\n",
+    "\n",
+    "---"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 6. Integrating Fine-Tuning Experiments with MLflow\n",
+    "\n",
+    "While `SFTTrainer` can automatically log some metrics if an MLflow run is active during `trainer.train()`, we often want more explicit control and to log additional parameters, configurations, and artifacts related to our fine-tuning setup. We'll wrap the setup and training trigger in an `mlflow.start_run()` block if we want to manage the run context more explicitly or add more details before/after training."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Logging Parameters, Metrics, and Artifacts\n",
+    "\n",
+    "Since `SFTTrainer` with `report_to=\"mlflow\"` handles logging during `trainer.train()`, we'll focus here on what we might log *around* that process, or what it logs by default.\n",
+    "\n",
+    "If you were to manually manage the MLflow run for finer control (e.g., if `report_to` wasn't used or to add more pre/post training info):\n",
+    "```
+    "# Example of manual MLflow logging if not using SFTTrainer's auto-logging\n",
+    "with mlflow.start_run(run_name=\"Phi3Mini_Recipe_FineTune_ManualLog\") as run:\n",
+    "    run_id = run.info.run_id\n",
+    "    print(f\"MLflow Run ID for Fine-Tuning: {run_id}\")\n",
+    "\n",
+    "    # Log parameters\n",
+    "    mlflow.log_param(\"base_model_name\", base_model_name)\n",
+    "    mlflow.log_param(\"dataset_name\", dataset_name)\n",
+    "    mlflow.log_param(\"num_train_samples\", len(train_dataset))\n",
+    "    mlflow.log_params(training_args.to_dict()) # Log all training arguments\n",
+    "    mlflow.log_params({\n",
+    "        \"lora_r\": lora_config.r,\n",
+    "        \"lora_alpha\": lora_config.lora_alpha,\n",
+    "        \"lora_dropout\": lora_config.lora_dropout,\n",
+    "        \"lora_target_modules\": \",\".join(lora_config.target_modules)\n",
+    "    })\n",
+    "    mlflow.log_param(\"quantization\", \"4-bit_nf4\")\n",
+    "\n",
+    "    # --- Assume SFTTrainer is initialized and training happens here ---\n",
+    "    # trainer.train() \n",
+    "    # --- Training finishes ---\n",
+    "\n",
+    "    # Log metrics (SFTTrainer would log train/loss, train/learning_rate etc.)\n",
+    "    if train_result and hasattr(train_result, 'training_loss'):\n",
+    "        mlflow.log_metric(\"final_training_loss\", train_result.training_loss)\n",
+    "    \n",
+    "    # Log the fine-tuned LoRA adapter as an artifact\n",
+    "    adapter_save_path = os.path.join(output_dir, \"final_adapter_for_mlflow\")\n",
+    "    # peft_model.save_pretrained(adapter_save_path) # If peft_model was still in scope\n",
+    "    # For this demo, we assume the adapter was saved by the trainer in the previous cell.\n",
+    "    final_adapter_path = os.path.join(output_dir, \"final_adapter\")\n",
+    "    if os.path.exists(final_adapter_path):\n",
+    "        mlflow.log_artifacts(final_adapter_path, artifact_path=\"fine_tuned_adapter\")\n",
+    "        print(f\"Logged fine-tuned adapter from {final_adapter_path} to MLflow artifacts.\")\n",
+    "    else:\n",
+    "        print(f\"Adapter path {final_adapter_path} not found for MLflow logging.\")\n",
+    "\n",
+    "    mlflow.set_tag(\"model_type\", \"LLM_Causal_FineTune\")\n",
+    "    mlflow.set_tag(\"framework\", \"PEFT_LoRA_TRL\")\n",
+    "```\n",
+    "**Note:** Since `SFTTrainer` with `report_to=\"mlflow\"` handles logging into the *currently active run*, the training metrics (loss, learning rate, etc.) from the cell where `trainer.train()` was called should already be in an MLflow run. The `output_dir` specified in `TrainingArguments` will also contain checkpoints and the final model adapter if training completed successfully. We can log this `output_dir` or the specific `final_adapter` sub-directory as an artifact if needed after training."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Let's ensure we log the final adapter from the `SFTTrainer`'s output directory into the run created by `SFTTrainer` (or retrieve that run and log to it)."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# The SFTTrainer would have created its own run or used an existing active one.\n",
+    "# Let's try to get the last active run if one was created by SFTTrainer.\n",
+    "active_run = mlflow.last_active_run()\n",
+    "if active_run:\n",
+    "    print(f\"Active MLflow Run ID (likely from SFTTrainer): {active_run.info.run_id}\")\n",
+    "    with mlflow.start_run(run_id=active_run.info.run_id, nested=False) as run: # Re-open to add more artifacts/params\n",
+    "        mlflow.log_param(\"base_model_name\", base_model_name)\n",
+    "        mlflow.log_param(\"dataset_name\", dataset_name)\n",
+    "        mlflow.log_param(\"num_train_samples\", len(train_dataset))\n",
+    "        # TrainingArguments are often logged automatically by SFTTrainer callback, but we can add more\n",
+    "        mlflow.log_params({\n",
+    "            \"lora_r\": lora_config.r,\n",
+    "            \"lora_alpha\": lora_config.lora_alpha,\n",
+    "            \"lora_dropout\": lora_config.lora_dropout,\n",
+    "            \"lora_target_modules\": \",\".join(lora_config.target_modules) if hasattr(lora_config, 'target_modules') else 'N/A'\n",
+    "        })\n",
+    "        mlflow.log_param(\"quantization_config\", str(quantization_config.to_dict())) # Log quantization details\n",
+    "        mlflow.log_param(\"max_seq_length\", 1024) # From SFTTrainer setup\n",
+    "\n",
+    "        # Log the final adapter model from SFTTrainer's output directory\n",
+    "        final_adapter_path_from_trainer = os.path.join(output_dir, \"final_adapter\")\n",
+    "        if os.path.exists(final_adapter_path_from_trainer):\n",
+    "            mlflow.log_artifacts(final_adapter_path_from_trainer, artifact_path=\"fine_tuned_lora_adapter\")\n",
+    "            print(f\"Logged final LoRA adapter from '{final_adapter_path_from_trainer}' to MLflow run {run.info.run_id}.\")\n",
+    "        else:\n",
+    "            print(f\"Final adapter path '{final_adapter_path_from_trainer}' not found. Training might have failed or skipped.\")\n",
+    "        \n",
+    "        mlflow.set_tag(\"task\", \"RecipeGeneration\")\n",
+    "        mlflow.set_tag(\"architecture\", \"Phi-3-Mini_LoRA\")\n",
+    "else:\n",
+    "    print(\"No active MLflow run found. SFTTrainer might not have initiated one or training was skipped.\")\n",
+    "    print(\"If training ran, check your MLflow UI for runs under the experiment.\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "![MLFlow Tracking]\n",
+    "\n",
+    "---"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 7. Qualitative Evaluation of the Fine-Tuned Model\n",
+    "\n",
+    "The best way to see the impact of fine-tuning (especially for generative tasks) is often through qualitative evaluation: generating samples and observing the changes in behavior."
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Loading the Fine-Tuned Adapter\n",
+    "We need to load the base model again (quantized) and then apply the trained LoRA adapter weights to it."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "# Path to the saved adapter (make sure this path is correct based on SFTTrainer output)\n",
+    "adapter_path = os.path.join(output_dir, \"final_adapter\") \n",
+    "merged_model = None\n",
+    "\n",
+    "if not os.path.exists(os.path.join(adapter_path, \"adapter_model.safetensors\")) and not os.path.exists(os.path.join(adapter_path, \"adapter_model.bin\")):\n",
+    "    print(f\"Fine-tuned adapter not found at {adapter_path}. Skipping qualitative evaluation.\")\n",
+    "else:\n",
+    "    print(f\"Adapter found at {adapter_path}. Proceeding with loading for evaluation.\")\n",
+    "    # Load the base model again (quantized)\n",
+    "    # Ensure device_map is set, especially if you have limited VRAM or multiple GPUs\n",
+    "    # For single GPU or CPU for inference, 'auto' or specific device like 'cuda:0' or 'cpu'\n",
+    "    eval_device_map = \"auto\" if torch.cuda.is_available() else {\"\": \"cpu\"} # Sensible default\n",
+    "    \n",
+    "    print(f\"Loading base model {base_model_name} for evaluation with device_map='{eval_device_map}'...\")\n",
+    "    base_model_for_eval = AutoModelForCausalLM.from_pretrained(\n",
+    "        base_model_name,\n",
+    "        quantization_config=quantization_config, # Use the same quantization\n",
+    "        device_map=eval_device_map, \n",
+    "        trust_remote_code=True,\n",
+    "        # torch_dtype=torch.bfloat16 # if using bfloat16 for compute\n",
+    "    )\n",
+    "    # Tokenizer should be the same one we loaded earlier\n",
+    "    # tokenizer = AutoTokenizer.from_pretrained(base_model_name, trust_remote_code=True)\n",
+    "    # if tokenizer.pad_token is None: tokenizer.pad_token = tokenizer.eos_token\n",
+    "    # tokenizer.padding_side = \"right\"\n",
+    "\n",
+    "    print(f\"Loading PEFT model with adapter from: {adapter_path}\")\n",
+    "    # Load the LoRA adapter onto the base model\n",
+    "    # is_trainable=False because we are only doing inference\n",
+    "    merged_model = PeftModel.from_pretrained(base_model_for_eval, adapter_path, is_trainable=False)\n",
+    "    # merged_model = merged_model.merge_and_unload() # Optional: merge adapter into base model for faster inference, but loses LoRA flexibility\n",
+    "    merged_model.eval() # Set to evaluation mode\n",
+    "    print(\"Fine-tuned model (base + adapter) loaded for evaluation.\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "### Generating Sample Responses\n",
+    "Let's create some prompts relevant to recipe generation and see how the fine-tuned model responds."
+   ]
+  },
+  {
+   "cell_type": "code",
+   "execution_count": null,
+   "metadata": {},
+   "outputs": [],
+   "source": [
+    "sample_prompts = [\n",
+    "    \"<s>Human: I want a unique recipe for a vegan birthday cake. Surprise me!</s><s>Assistant:\",\n",
+    "    \"<s>Human: Can you give me a 15-minute recipe for a healthy lunch?</s><s>Assistant:\",\n",
+    "    \"<s>Human: How do I make a classic Italian lasagna from scratch?</s><s>Assistant:\"\n",
+    "]\n",
+    "\n",
+    "generated_responses = \"\"\n",
+    "\n",
+    "if merged_model and tokenizer:\n",
+    "    print(\"\\nGenerating responses with the fine-tuned model...\")\n",
+    "    for prompt_text in sample_prompts:\n",
+    "        print(f\"\\nPrompt: {prompt_text}\")\n",
+    "        # Ensure the tokenizer and model are on the same device if not using device_map=\"auto\" correctly for PeftModel\n",
+    "        # The device of the model can be checked with merged_model.device\n",
+    "        inputs = tokenizer(prompt_text, return_tensors=\"pt\", padding=True, truncation=True, max_length=512).to(merged_model.device)\n",
+    "        \n",
+    "        with torch.no_grad(): # Disable gradient calculations for inference\n",
+    "            # Generate response\n",
+    "            # For Phi-3, specific generation parameters might be beneficial.\n",
+    "            # Check model card for recommended settings.\n",
+    "            outputs = merged_model.generate(\n",
+    "                **inputs,\n",
+    "                max_new_tokens=256,\n",
+    "                num_return_sequences=1,\n",
+    "                eos_token_id=tokenizer.eos_token_id,\n",
+    "                pad_token_id=tokenizer.pad_token_id, # Important if batching or padding enabled\n",
+    "                do_sample=True, # Enable sampling for more creative responses\n",
+    "                temperature=0.7,\n",
+    "                top_p=0.9,\n",
+    "            )\n",
+    "        response_text = tokenizer.decode(outputs[0], skip_special_tokens=True)\n",
+    "        # The response will include the prompt, so we can optionally slice it out for cleaner display\n",
+    "        # For SFTTrainer format, the model learns to generate the full sequence including the prompt template.\n",
+    "        # We want the part after \"<s>Assistant:\"\n",
+    "        assistant_marker = \"<s>Assistant:\"\n",
+    "        if assistant_marker in response_text:\n",
+    "            actual_response = response_text.split(assistant_marker, 1)[1].strip()\n",
+    "        else: # Fallback if marker not found (e.g. if model generates differently)\n",
+    "            actual_response = response_text.replace(prompt_text.replace(assistant_marker, \"\").strip(), \"\").strip()\n",
+    "        \n",
+    "        print(f\"Response: {actual_response}\")\n",
+    "        generated_responses += f\"Prompt: {prompt_text}\\nResponse: {actual_response}\\n---\\n\"\n",
+    "        \n",
+    "    # Log sample generations to the last active MLflow run\n",
+    "    active_run_for_eval = mlflow.last_active_run()\n",
+    "    if active_run_for_eval:\n",
+    "        with mlflow.start_run(run_id=active_run_for_eval.info.run_id, nested=False) as run:\n",
+    "            mlflow.log_text(generated_responses, \"sample_generations_after_finetune.txt\")\n",
+    "            print(\"\\nLogged sample generations to MLflow.\")\n",
+    "    \n",
+    "    # Clean up evaluation model\n",
+    "    del base_model_for_eval\n",
+    "    del merged_model\n",
+    "    if torch.cuda.is_available():\n",
+    "        torch.cuda.empty_cache()\n",
+    "else:\n",
+    "    print(\"Skipping sample generation as fine-tuned model or tokenizer is not available.\")"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "Ideally, you would compare these responses to those from the *base model before fine-tuning* to clearly see the impact of your domain adaptation. This comparison is a key part of evaluating fine-tuning success.\n",
+    "\n",
+    "---"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 8. Exploring Fine-Tuning Runs in the MLflow UI\n",
+    "\n",
+    "Launch the MLflow UI (`mlflow ui`) and navigate to the `LLM_FineTuning_RecipeBot_Phi3Mini` experiment.\n",
+    "\n",
+    "- **Runs:** Each fine-tuning attempt (if `SFTTrainer` created separate runs, or if you manually started them) will appear.\n",
+    "- **Parameters:** Examine the logged parameters: base model, dataset info, LoRA config (r, alpha, etc.), training args (learning rate, batch size, epochs).\n",
+    "- **Metrics:** Look for `train/loss`, `train/learning_rate`, `train/epoch` which `SFTTrainer`'s MLflow callback should log. The loss curve can indicate if the model is learning.\n",
+    "- **Artifacts:** \n",
+    "    - `fine_tuned_lora_adapter`: Contains the adapter files (`adapter_model.bin` or `.safetensors`, `adapter_config.json`).\n",
+    "    - `sample_generations_after_finetune.txt`: Your qualitative evaluation samples.\n",
+    "\n",
+    "![MLFlow UI]\n",
+    "\n",
+    "Comparing runs with different hyperparameters (e.g., learning rates, LoRA ranks, number of epochs) in the MLflow UI is crucial for understanding what works best for your specific fine-tuning task.\n",
+    "\n",
+    "---"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 9. Saving and (Optionally) Pushing Adapters to Hugging Face Hub\n",
+    "\n",
+    "The `SFTTrainer` already saved the adapter model to the `output_dir`. These adapters are typically small and easy to share or deploy.\n",
+    "\n",
+    "You can push your trained PEFT adapters (or the full merged model) to the Hugging Face Hub:\n",
+    "```
+    "# Assuming 'merged_model' is your PeftModel object (base + adapter)\n",
+    "# or 'peft_model' if you still have the SFTTrainer's model in scope and want to save its adapter.\n",
+    "\n",
+    "# To push the adapter only:\n",
+    "# from huggingface_hub import notebook_login\n",
+    "# notebook_login() # Log in to your Hugging Face account\n",
+    "\n",
+    "# adapter_to_push_path = os.path.join(output_dir, \"final_adapter\") \n",
+    "# peft_model_for_push = PeftModel.from_pretrained(AutoModelForCausalLM.from_pretrained(base_model_name), adapter_to_push_path)\n",
+    "# peft_model_for_push.push_to_hub(\"your-hf-username/phi3-mini-recipe-lora-adapter\")\n",
+    "# tokenizer.push_to_hub(\"your-hf-username/phi3-mini-recipe-lora-adapter\") # Also push tokenizer for completeness\n",
+    "\n",
+    "# To merge and push the full model (larger):\n",
+    "# merged = peft_model.merge_and_unload() # if peft_model is available\n",
+    "# merged.push_to_hub(\"your-hf-username/phi3-mini-recipe-finetuned-merged\")\n",
+    "# tokenizer.push_to_hub(\"your-hf-username/phi3-mini-recipe-finetuned-merged\")\n",
+    "```\n",
+    "MLflow's `mlflow.transformers.log_model` can also sometimes handle pushing to the Hub if configured correctly, especially when saving the full model rather than just adapters.\n",
+    "\n",
+    "---"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 10. Key Takeaways\n",
+    "\n",
+    "In this notebook, we've accomplished a significant task in the LLM customization lifecycle:\n",
+    "\n",
+    "- **Understood Fine-Tuning:** Grasped the concept of fine-tuning for domain and style adaptation.\n",
+    "- **PEFT with LoRA:** Successfully used LoRA for parameter-efficient fine-tuning, making it feasible on more accessible hardware.\n",
+    "- **Leveraged `transformers` and `trl`:** Utilized Hugging Face libraries for loading models, tokenizers, and the `SFTTrainer` for a streamlined fine-tuning process.\n",
+    "- **4-bit Quantization:** Implemented quantization to further reduce memory footprint.\n",
+    "- **MLflow for Fine-Tuning Orchestration:** Tracked crucial fine-tuning parameters (model names, dataset info, LoRA config, training args), metrics (training loss), and artifacts (the LoRA adapter, sample generations) using MLflow.\n",
+    "- **Iterative Improvement:** Recognized that MLflow is essential for comparing different fine-tuning experiments to optimize results.\n",
+    "\n",
+    "Fine-tuning is an iterative process. The quality of your data, choice of base model, LoRA configuration, and training hyperparameters all play a significant role. MLflow provides the framework to manage this complexity.\n",
+    "\n",
+    "---"
+   ]
+  },
+  {
+   "cell_type": "markdown",
+   "metadata": {},
+   "source": [
+    "## 11. Engaging Resources and Further Reading\n",
+    "\n",
+    "To dive deeper into LLM fine-tuning:\n",
+    "\n",
+    "- **Hugging Face Documentation:**\n",
+    "    - [Fine-tuning Pretrained Models](https://huggingface.co/docs/transformers/training)\n",
+    "    - [PEFT Library](https://huggingface.co/docs/peft/index)\n",
+    "    - [TRL Library (SFTTrainer)](https://huggingface.co/docs/trl/sft_trainer)\n",
+    "    - [BitsAndBytes (Quantization)](https://huggingface.co/docs/transformers/main/en/main_classes/quantization#bitsandbytes)\n",
+    "- **MLflow Documentation:**\n",
+    "    - [MLflow Tracking](https://mlflow.org/docs/latest/tracking.html)\n",
+    "    - [MLflow with Hugging Face Transformers](https://mlflow.org/docs/latest/llms/transformers/index.html) (often covers logging full models)\n",
+    "- **Key Concepts & Blogs:**\n",
+    "    - [LoRA: Low-Rank Adaptation of Large Language Models (Original Paper)](https://arxiv.org/abs/2106.09685)\n",
+    "    - Numerous blogs and tutorials on fine-tuning specific models like Llama, Phi, Mistral with LoRA (search for recent ones).\n",
+    "\n",
+    "--- \n",
+    "\n",
+    "Congratulations on completing this challenging but rewarding notebook on LLM fine-tuning with MLflow! You're now equipped to adapt powerful language models to your specific needs.\n",
+    "\n",
+    "**Coming Up Next:** We'll explore how to systematically evaluate and benchmark different LLMs (both base and fine-tuned) using MLflow to make informed model selection decisions.\n",
+    "\n",
+    "![Keep Learning](https://memento.epfl.ch/image/23136/1440x810.jpg)"
+   ]
+  }
+ ],
+ "metadata": {
+  "kernelspec": {
+   "display_name": "Python 3 (ipykernel)",
+   "language": "python",
+   "name": "python3"
+  },
+  "language_info": {
+   "codemirror_mode": {
+    "name": "ipython",
+    "version": 3
+   },
+   "file_extension": ".py",
+   "mimetype": "text/x-python",
+   "name": "python",
+   "nbconvert_exporter": "python",
+   "pygments_lexer": "ipython3",
+   "version": "3.10.12"
+  }
+ },
+ "nbformat": 4,
+ "nbformat_minor": 5
+}
