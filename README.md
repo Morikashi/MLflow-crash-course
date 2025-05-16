@@ -8,7 +8,7 @@ Whether you're new to MLflow or looking to deepen your understanding of its appl
 
 ---
 
-## ✨ What You'll Explore ✨
+## What You'll Explore
 
 This series is structured to build your skills progressively:
 
@@ -20,7 +20,7 @@ This series is structured to build your skills progressively:
 
 ---
 
-## 📚 The Notebook Journey 📚
+## The Notebook Journey
 
 Here's a glimpse into each adventure:
 
@@ -94,7 +94,7 @@ Here's a glimpse into each adventure:
 
 ---
 
-## 🚀 How to Use This Repository 🚀
+## How to Use This Repository
 
 1.  **Clone the Repository:**
     ```
@@ -113,7 +113,7 @@ Here's a glimpse into each adventure:
 
 ---
 
-## 💡 Key Learnings Across the Series 💡
+## Key Learnings Across the Series
 
 By completing this series, you will gain:
 *   **Comprehensive MLflow Proficiency:** From basic tracking to advanced model registry, LLM evaluation, and tracing complex agentic systems.
@@ -123,7 +123,7 @@ By completing this series, you will gain:
 
 ---
 
-## 🌟 Further Exploration & Contribution 🌟
+## Further Exploration & Contribution
 
 *   Explore the official [MLflow Documentation](https://mlflow.org/docs/latest/index.html) for even more features.
 *   Try different models, datasets, or tasks in each notebook.
