@@ -16,7 +16,7 @@ This series is structured to build your skills progressively:
 2.  **Productionizing Models:** Moving beyond experiments to model registry and local deployment.
 3.  **Generative AI with MLflow:** Applying MLOps principles to RAG, LLM fine-tuning, evaluation, and agentic systems.
 
-![MLFlow Workflow]([https://mlflow.org/docs/latest/assets/images/learn-core-components-b2c38671f104ca6466f105a92ed5aa68.png](https://mlflow.org/assets/images/tracing-ui-d5822d1e23426b65ff4008bf57d8cc83.gif))
+![MLFlow Workflow](https://mlflow.org/assets/images/tracing-ui-d5822d1e23426b65ff4008bf57d8cc83.gif)
 
 ---
 
