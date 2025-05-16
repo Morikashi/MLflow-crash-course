@@ -62,7 +62,7 @@ Here's a glimpse into each adventure:
 *   **Tech & Concepts:** LLM Evaluation, Text Summarization, ROUGE, BERTScore, Hugging Face `evaluate` library.
 *   **Dataset:** `openai/summarize_from_feedback` (TLDR subset).
 *   **Outcome:** Objectively compare LLM performance and make data-driven model selection decisions.
-    ![MLFlow UI](https://encrypted-tbn0.gstatic.com/images?q=tbn:ANd9GcSMPe91tBDxKc4qSzhdnJjgyJbLlF-ddrL_OQ&s)
+    ![MLFlow UI](https://miro.medium.com/v2/resize:fit:1400/1*Cz8hSkcf4ZtZD87rz4KfNA.png)
 
 ###  Notebook 7: Tool-Calling Agents with LangGraph, Ollama, and MLflow
 *   **Overview:** Build an AI agent that can intelligently decide to use external tools (e.g., mock weather service, calculator) to answer user queries. We'll use LangGraph for agent orchestration and Ollama with `phi3:mini` or `Qwen3-0.6B` for local LLM power.
