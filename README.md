@@ -1,4 +1,4 @@
-# 🚀 Master MLOps for Modern ML & GenAI with MLflow: A Notebook Series 🚀
+# Practical MLflow: Step-by-Step Notebooks
 
 ![MLFlow logo](https://www.the-odd-dataguy.com/images/posts/20191113/cover.jpg)
 
