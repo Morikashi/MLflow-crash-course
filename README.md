@@ -44,8 +44,8 @@ Here's a glimpse into each adventure:
 
 ### Notebook 4: Building RAG Applications with MLflow and LlamaIndex
 *   **Overview:** Venture into the world of Retrieval-Augmented Generation (RAG)! We'll build a RAG pipeline using **LlamaIndex** to connect custom data sources (scientific papers) to an LLM (powered by Ollama or Hugging Face). This enhances LLM responses by grounding them in factual, external knowledge.
-*   **MLflow Focus:** Tracking RAG pipeline components (LLM, embedding model, chunking strategy, retriever settings), logging parameters, and artifacts like the vector store index and sample Q&A pairs. `mlflow.llama_index.autolog()` or manual logging can be used [2, 3, 4].
-*   **Tech & Concepts:** Retrieval-Augmented Generation (RAG), LlamaIndex (`VectorStoreIndex`, `SimpleDirectoryReader`, Query Engines), Ollama, Local LLMs, Embedding Models, Vector Stores [1, 5].
+*   **MLflow Focus:** Tracking RAG pipeline components (LLM, embedding model, chunking strategy, retriever settings), logging parameters, and artifacts like the vector store index and sample Q&A pairs. `mlflow.llama_index.autolog()` or manual logging can be used.
+*   **Tech & Concepts:** Retrieval-Augmented Generation (RAG), LlamaIndex (`VectorStoreIndex`, `SimpleDirectoryReader`, Query Engines), Ollama, Local LLMs, Embedding Models, Vector Stores.
 *   **Dataset:** Scientific papers (e.g., from `pszemraj/scientific_lay_summarisation` or similar).
 *   **Outcome:** Construct and track a RAG system capable of answering questions based on your own documents, understanding how MLflow helps manage these complex GenAI applications.
 
@@ -79,7 +79,7 @@ Here's a glimpse into each adventure:
 
 ---
 
-## 🛠️ Prerequisites & Setup 🛠️
+## Prerequisites & Setup 
 
 1.  **Python Environment:** It's highly recommended to use a virtual environment (e.g., `conda` or `python -m venv`). Python 3.9+ is advisable.
 2.  **Dependencies:** Each notebook will list its specific Python package requirements at the top. You can typically install them using `pip install -r requirements.txt` (if a global one is provided) or `pip install <package_name>` as you go.
