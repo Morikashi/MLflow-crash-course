@@ -60,7 +60,7 @@ Here's a glimpse into each adventure:
 *   **Overview:** How good are our LLMs (base vs. fine-tuned)? We systematically evaluate different models (e.g., base Qwen3-0.6B, our recipe-fine-tuned Qwen3, and a baseline like Flan-T5-small) on a text summarization task using Hugging Face `evaluate` and `mlflow.evaluate()`.
 *   **MLflow Focus:** `mlflow.evaluate()`, logging standard NLP metrics (ROUGE, BERTScore), comparing evaluation runs in the MLflow UI to create a benchmark.
 *   **Tech & Concepts:** LLM Evaluation, Text Summarization, ROUGE, BERTScore, Hugging Face `evaluate` library.
-*   **Dataset:** `openai/summarize_from_feedback` (TLDR subset).
+*   **Dataset:** `openai/summarize_from_feedback` (Axis subset).
 *   **Outcome:** Objectively compare LLM performance and make data-driven model selection decisions.
     ![MLFlow UI](https://miro.medium.com/v2/resize:fit:1400/1*Cz8hSkcf4ZtZD87rz4KfNA.png)
 
