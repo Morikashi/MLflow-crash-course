@@ -86,7 +86,7 @@ Here's a glimpse into each adventure:
 3.  **Ollama (for local LLMs):**
     *   Download and install Ollama from [ollama.com](https://ollama.com/).
     *   Ensure the Ollama application/server is running before executing notebooks that use it.
-    *   Pull the required models (e.g., `ollama pull phi3:mini`, `ollama pull qwen3:0.6b`) via your terminal.
+    *   Pull the required models (e.g., `ollama pull qwen3:1.7b`, `ollama pull qwen3:0.6b`, `ollama pull gemma3:1b`) via your terminal.
 4.  **MLflow:** Ensure MLflow is installed (`pip install mlflow`). The MLflow UI can be launched by running `mlflow ui` in your terminal from the root directory of this repository (where the `mlruns` folder will be created).
 5.  **Hugging Face Account (Optional):** For downloading certain models/datasets or pushing your fine-tuned adapters to the Hub, you might need a Hugging Face account and to be logged in via `huggingface-cli login`.
 
