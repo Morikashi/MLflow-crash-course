@@ -71,7 +71,7 @@ Here's a glimpse into each adventure:
 *   **Outcome:** Create and trace dynamic, tool-using agents.
     *(Imagine a gif showing a decision graph or an agent using a tool)*
 
-### Notebook 8: Advanced Function-Calling and Agent2Agent Protocols in LLM Apps
+### Notebook 8: Advanced Function-Calling and Agentic Protocols in LLM Apps
 *   **Overview:** Enhance our agent's tool-calling capabilities using Pydantic for robust function argument schemas. We'll then design a hierarchical multi-agent system (e.g., Supervisor coordinating Researcher and Writer agents) using LangGraph for a content generation task.
 *   **MLflow Focus:** Tracing complex multi-step, multi-component agent interactions, visualizing data flow and decisions between different "agentic" parts.
 *   **Tech & Concepts:** Advanced Function Calling, Pydantic, Multi-Agent Systems (Hierarchical), LangGraph, Ollama.
