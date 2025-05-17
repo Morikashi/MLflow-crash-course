@@ -65,9 +65,9 @@ Here's a glimpse into each adventure:
     ![MLFlow UI](https://miro.medium.com/v2/resize:fit:1400/1*Cz8hSkcf4ZtZD87rz4KfNA.png)
 
 ###  Notebook 7: Tool-Calling Agents with LangGraph, Ollama, and MLflow
-*   **Overview:** Build an AI agent that can intelligently decide to use external tools (e.g., mock weather service, calculator) to answer user queries. We'll use LangGraph for agent orchestration and Ollama with `phi3:mini` or `Qwen3-0.6B` for local LLM power.
+*   **Overview:** Build an AI agent that can intelligently decide to use external tools (e.g., mock weather service, calculator) to answer user queries. We'll use LangGraph for agent orchestration and Ollama with `Qwen3-0.6B` for local LLM power.
 *   **MLflow Focus:** `mlflow.langchain.autolog()` for tracing LangGraph executions, visualizing agent decision paths, LLM calls, and tool invocations in the MLflow UI.
-*   **Tech & Concepts:** AI Agents, Tool Use, LangGraph (`StateGraph`, Nodes, Conditional Edges), Ollama, Local LLMs (`phi3:mini` or `Qwen3-0.6B`).
+*   **Tech & Concepts:** AI Agents, Tool Use, LangGraph (`StateGraph`, Nodes, Conditional Edges), Ollama, Local LLMs (`Qwen3-0.6B`).
 *   **Outcome:** Create and trace dynamic, tool-using agents.
     *(Imagine a gif showing a decision graph or an agent using a tool)*
 
@@ -81,7 +81,7 @@ Here's a glimpse into each adventure:
 
 ## Prerequisites & Setup 
 
-1.  **Python Environment:** It's highly recommended to use a virtual environment (e.g., `conda` or `python -m venv`). Python 3.9+ is advisable.
+1.  **Python Environment:** It's highly recommended to use a virtual environment (e.g., `conda` or `python -m venv`). Python 3.9+ is advisable (mine for these notebooks is python 3.12).
 2.  **Dependencies:** Each notebook will list its specific Python package requirements at the top. You can typically install them using `pip install -r requirements.txt` (if a global one is provided) or `pip install <package_name>` as you go.
 3.  **Ollama (for local LLMs):**
     *   Download and install Ollama from [ollama.com](https://ollama.com/).
