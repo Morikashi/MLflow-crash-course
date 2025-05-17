@@ -96,8 +96,9 @@ Here's a glimpse into each adventure:
 
 1.  **Clone the Repository:**
     ```
-    git clone <repository_url>
-    cd <repository_name>
+    1. set up your working directory using terminal/cmd,
+    2. Command `git clone https://github.com/Morikashi/MLflow-crash-course.git`
+    3. Command `cd RMLflow-crash-course`
     ```
 2.  **Navigate to Notebooks:** Each notebook is self-contained or builds upon concepts from previous ones.
 3.  **Install Dependencies:** Check the first few cells of each notebook for `pip install` commands for required libraries.
